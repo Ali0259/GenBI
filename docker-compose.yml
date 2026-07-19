@@ -1,0 +1,144 @@
+
+# ---------------------------------------------------------------------------
+# GenBI Platform - Docker Compose orchestration
+#
+# This file builds every application image directly from source in this
+# repository (backend/, frontend-openui/, frontend-admin/) rather than
+# pulling from a container registry. That is the correct default for an
+# open-source project someone clones fresh: `docker compose build` always
+# works from a clean checkout with no registry account required.
+#
+# Once you have a CI pipeline publishing tagged images (see
+# .github/workflows/ci.yml), you can switch the `build:` blocks below to
+# `image: yourorg/genbi-backend:${GENBI_IMAGE_TAG}` for faster deploys that
+# skip rebuilding on every server.
+# ---------------------------------------------------------------------------
+
+name: genbi-platform
+
+services:
+
+  admin_database:
+    image: postgres:16.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${ADMIN_DB_NAME}
+      POSTGRES_USER: ${ADMIN_DB_USER}
+      POSTGRES_PASSWORD: ${ADMIN_DB_PASSWORD}
+    volumes:
+      - genbi_admin_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ADMIN_DB_USER} -d ${ADMIN_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - genbi_internal
+
+  redis_cache:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - genbi_redis_data:/data
+    networks:
+      - genbi_internal
+
+  backend_api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      admin_database:
+        condition: service_healthy
+    environment:
+      GENBI_MASTER_ENCRYPTION_KEY: ${GENBI_MASTER_ENCRYPTION_KEY}
+      GENBI_JWT_SIGNING_KEY: ${GENBI_JWT_SIGNING_KEY}
+      ADMIN_DATABASE_URL: "postgresql+psycopg://${ADMIN_DB_USER}:${ADMIN_DB_PASSWORD}@admin_database:5432/${ADMIN_DB_NAME}"
+      REDIS_URL: "redis://redis_cache:6379/0"
+      GENBI_CORS_ALLOWED_ORIGINS: ${GENBI_CORS_ALLOWED_ORIGINS:-*}
+    volumes:
+      - genbi_db_backups:/opt/genbi/backups
+    labels:
+      - "traefik.enable=true"
+      # Matched on BOTH domains so the same backend serves API calls from
+      # either frontend -- adjust to a single domain if you don't need the
+      # OpenUI/Admin split hosted separately.
+      - "traefik.http.routers.genbi-backend.rule=(Host(`${GENBI_OPENUI_DOMAIN:-app.localhost}`) || Host(`${GENBI_ADMIN_DOMAIN:-admin.localhost}`)) && PathPrefix(`/api`)"
+      - "traefik.http.routers.genbi-backend.entrypoints=web"
+      - "traefik.http.services.genbi-backend-svc.loadbalancer.server.port=8000"
+    networks:
+      - genbi_internal
+
+  openui_frontend:
+    build:
+      context: ./frontend-openui
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend_api
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.genbi-openui.rule=Host(`${GENBI_OPENUI_DOMAIN:-app.localhost}`)"
+      - "traefik.http.routers.genbi-openui.entrypoints=web"
+      - "traefik.http.services.genbi-openui-svc.loadbalancer.server.port=80"
+    networks:
+      - genbi_internal
+
+  admin_panel_frontend:
+    build:
+      context: ./frontend-admin
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend_api
+    labels:
+      - "traefik.enable=true"
+      # Deliberately a distinct subdomain from the OpenUI frontend, per the
+      # split-architecture requirement that the Admin Panel is a separate,
+      # password-protected surface from the business-user chat interface.
+      - "traefik.http.routers.genbi-admin.rule=Host(`${GENBI_ADMIN_DOMAIN:-admin.localhost}`)"
+      - "traefik.http.routers.genbi-admin.entrypoints=web"
+      - "traefik.http.services.genbi-admin-svc.loadbalancer.server.port=80"
+    networks:
+      - genbi_internal
+
+  reverse_proxy:
+    image: traefik:v3.1
+    restart: unless-stopped
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - genbi_traefik_certs:/letsencrypt
+    networks:
+      - genbi_internal
+
+  # Optional: only started when the Admin Panel configures an offline LLM
+  # provider. Bring it up with: docker compose --profile offline-llm up -d
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    profiles: ["offline-llm"]
+    volumes:
+      - genbi_ollama_models:/root/.ollama
+    networks:
+      - genbi_internal
+
+networks:
+  genbi_internal:
+    driver: bridge
+
+volumes:
+  genbi_admin_db_data:
+  genbi_redis_data:
+  genbi_db_backups:
+  genbi_traefik_certs:
+  genbi_ollama_models:
