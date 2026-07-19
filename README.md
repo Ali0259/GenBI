@@ -69,7 +69,7 @@ query fails to execute.
 ## Quick start (production, Ubuntu 20.04/22.04/24.04 LTS)
 
 ```bash
-git clone https://github.com/your-org/genbi-platform.git
+git clone https://github.com/ali0259/genbi.git
 cd genbi-platform
 sudo ./install.sh
 ```
