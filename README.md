@@ -70,7 +70,7 @@ query fails to execute.
 
 ```bash
 git clone https://github.com/ali0259/genbi.git
-cd genbi-platform
+cd genbi
 sudo ./install.sh
 ```
 
