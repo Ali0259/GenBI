@@ -192,6 +192,15 @@ generate_fernet_compatible_key() {
     echo
 }
 
+prepare_secrets_directory() {
+    local secrets_dir="${REPO_ROOT}/secrets"
+    if [[ ! -d "${secrets_dir}" ]]; then
+        mkdir -p "${secrets_dir}"
+        log_info "Created ${secrets_dir} for the auto-generated default admin credentials file."
+    fi
+    chmod 700 "${secrets_dir}"
+}
+
 generate_environment_file() {
     if [[ -f "${GENBI_ENV_FILE}" ]]; then
         log_info "Existing .env file found at ${GENBI_ENV_FILE}; leaving secrets untouched. " \
@@ -225,12 +234,12 @@ ADMIN_DB_PASSWORD=${admin_db_password}
 GENBI_JWT_SIGNING_KEY=${jwt_signing_key}
 GENBI_MASTER_ENCRYPTION_KEY=${master_encryption_key}
 
-# Update these to your real domains once DNS is pointed at this server.
-# Left as .localhost defaults so a fresh install works immediately for
-# local testing without any DNS configuration.
-GENBI_OPENUI_DOMAIN=app.localhost
-GENBI_ADMIN_DOMAIN=admin.localhost
-GENBI_CORS_ALLOWED_ORIGINS=http://app.localhost,http://admin.localhost
+# Ports the two frontends are reachable on. Works via bare IP, localhost, or
+# a real domain identically -- no DNS or /etc/hosts entries required. Change
+# these if 80/8080 are already in use on your host.
+GENBI_OPENUI_PORT=80
+GENBI_ADMIN_PORT=8080
+GENBI_CORS_ALLOWED_ORIGINS=*
 EOF
 
     chmod 600 "${GENBI_ENV_FILE}"
@@ -263,6 +272,44 @@ deploy_compose_stack() {
     docker compose --env-file "${GENBI_ENV_FILE}" -f "${GENBI_COMPOSE_FILE}" ps | tee -a "${GENBI_LOG_FILE}"
 }
 
+wait_for_backend_ready() {
+    local openui_port
+    openui_port="$(grep -E '^GENBI_OPENUI_PORT=' "${GENBI_ENV_FILE}" | cut -d= -f2)"
+    openui_port="${openui_port:-80}"
+
+    log_info "Waiting for the backend API to become healthy (this includes running database migrations)..."
+    local attempt
+    for attempt in $(seq 1 30); do
+        if curl --silent --fail --max-time 3 "http://localhost:${openui_port}/api/health" > /dev/null 2>&1; then
+            log_info "Backend API is healthy."
+            return 0
+        fi
+        sleep 3
+    done
+
+    log_warn "Backend API did not become healthy within the expected time. " \
+             "The default admin credentials may not be ready yet -- check with: " \
+             "docker compose -f ${GENBI_COMPOSE_FILE} logs backend_api"
+    return 1
+}
+
+display_default_admin_credentials() {
+    local credentials_file="${REPO_ROOT}/secrets/admin_credentials.txt"
+
+    if [[ -f "${credentials_file}" ]]; then
+        echo ""
+        echo "============================================================"
+        cat "${credentials_file}"
+        echo "============================================================"
+        echo ""
+        log_info "The credentials above are saved at ${credentials_file} (readable only by root)."
+    else
+        log_warn "No credentials file found at ${credentials_file}. Either an admin user already " \
+                 "existed before this install, or the backend hasn't finished starting yet. " \
+                 "Check with: docker compose -f ${GENBI_COMPOSE_FILE} logs backend_api | grep -A5 bootstrap_default_admin"
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -278,11 +325,17 @@ main() {
     install_docker
     grant_docker_group_to_invoking_user
     generate_environment_file
+    prepare_secrets_directory
     deploy_compose_stack
+    wait_for_backend_ready
+    display_default_admin_credentials
 
     log_info "=== Installation complete ==="
-    log_info "By default the OpenUI is served at http://app.localhost and the Admin Panel at http://admin.localhost."
-    log_info "Add matching entries to your DNS or /etc/hosts, or edit GENBI_OPENUI_DOMAIN / GENBI_ADMIN_DOMAIN in ${GENBI_ENV_FILE}."
+    log_info "OpenUI (business users):  http://<this-server-ip-or-domain>/"
+    log_info "Admin Panel (operators):  http://<this-server-ip-or-domain>:8080/"
+    log_info "Both work via bare IP, localhost, or a real domain -- no DNS setup required."
+    log_info "A default admin account was created automatically -- see the credentials printed above "
+    log_info "(also saved at ${REPO_ROOT}/secrets/admin_credentials.txt). Change that password immediately after logging in."
     log_info "Secrets are stored at ${GENBI_ENV_FILE} -- back this file up securely and separately from database backups."
     log_info "To update the platform later: git pull, then re-run this script, or run:"
     log_info "    docker compose --env-file ${GENBI_ENV_FILE} -f ${GENBI_COMPOSE_FILE} build && docker compose --env-file ${GENBI_ENV_FILE} -f ${GENBI_COMPOSE_FILE} up -d"

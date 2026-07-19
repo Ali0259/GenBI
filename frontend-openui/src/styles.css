@@ -79,6 +79,13 @@ body {
   height: 100vh;
 }
 
+.genbi-version-tag {
+  font-size: 0.7rem;
+  color: var(--genbi-muted);
+  font-weight: 400;
+  vertical-align: middle;
+}
+
 .genbi-header {
   display: flex;
   justify-content: space-between;

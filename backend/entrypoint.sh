@@ -48,5 +48,12 @@ if ! alembic upgrade head; then
 fi
 echo "[entrypoint] Migrations applied successfully."
 
+echo "[entrypoint] Checking whether a default admin user needs to be provisioned..."
+if ! python -m app.scripts.bootstrap_default_admin; then
+    echo "[entrypoint] WARNING: default admin bootstrap step failed. This is non-fatal -- " \
+         "the server will still start. Create an admin user manually with: " \
+         "docker compose exec backend_api python -m app.scripts.create_admin_user --tenant-name ... --email ..."
+fi
+
 echo "[entrypoint] Starting uvicorn..."
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers "${GENBI_UVICORN_WORKERS:-2}"

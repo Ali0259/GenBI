@@ -22,11 +22,13 @@ from app.api.routes_admin import router as admin_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_query import router as query_router
 from app.config import get_settings
+from app.version import get_application_version
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 logger = logging.getLogger("genbi.main")
 
 _settings = get_settings()
+_application_version = get_application_version()
 
 
 @asynccontextmanager
@@ -46,7 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="GenBI Platform API",
     description="Multi-tenant Generative Business Intelligence backend.",
-    version="0.1.0",
+    version=_application_version,
     lifespan=lifespan,
 )
 
@@ -67,3 +69,13 @@ app.include_router(query_router)
 def health_check() -> dict[str, str]:
     """Liveness/readiness probe used by Docker healthchecks and load balancers."""
     return {"status": "ok"}
+
+
+@app.get("/api/version", tags=["health"])
+def get_version() -> dict[str, str]:
+    """
+    Reports the running application version, read from the VERSION file
+    baked into this image at build time. Useful for confirming an upgrade
+    actually took effect after `docker compose build && docker compose up -d`.
+    """
+    return {"version": _application_version}

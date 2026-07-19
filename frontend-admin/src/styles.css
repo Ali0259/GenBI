@@ -81,6 +81,13 @@ body {
   min-height: 100vh;
 }
 
+.genbi-admin-version-tag {
+  font-size: 0.7rem;
+  color: var(--a-muted);
+  font-weight: 400;
+  vertical-align: middle;
+}
+
 .genbi-admin-header {
   display: flex;
   justify-content: space-between;

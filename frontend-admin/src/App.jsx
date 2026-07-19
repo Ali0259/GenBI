@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useCallback } from "react";
 import "./styles.css";
 
-const API_BASE_URL = import.meta.env.VITE_GENBI_API_BASE_URL || "http://localhost:8000";
+// In production (served behind Traefik at admin.localhost or your real
+// domain), the API is reached via a relative path on the SAME origin --
+// Traefik routes PathPrefix(`/api`) on that domain straight to the backend
+// container. VITE_GENBI_API_BASE_URL only needs to be set for `npm run dev`
+// (see vite.config.js dev proxy).
+const API_BASE_URL = import.meta.env.VITE_GENBI_API_BASE_URL || "";
 
 function useAuthToken() {
   const [token, setToken] = useState(() => sessionStorage.getItem("genbi_admin_token") || "");
@@ -301,10 +306,19 @@ function LlmConfigPanel({ token }) {
 }
 
 function AdminDashboard({ token, onLogout }) {
+  const [backendVersion, setBackendVersion] = useState("");
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/version`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => data && setBackendVersion(data.version))
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="genbi-admin-dashboard">
       <header className="genbi-admin-header">
-        <h1>GenBI Admin Panel</h1>
+        <h1>GenBI Admin Panel {backendVersion && <span className="genbi-admin-version-tag">v{backendVersion}</span>}</h1>
         <button onClick={onLogout} className="genbi-admin-secondary-button">
           Log out
         </button>

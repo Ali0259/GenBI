@@ -45,6 +45,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini .
+COPY VERSION .
 COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh
 

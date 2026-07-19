@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from "react";
 
-// In production this is injected at build time or served same-origin behind
-// the reverse proxy (see deploy/docker-compose.yml, Traefik routing rules).
-// Falling back to localhost:8000 makes `npm run dev` work standalone against
-// a locally running backend without any extra configuration.
-const API_BASE_URL = import.meta.env.VITE_GENBI_API_BASE_URL || "http://localhost:8000";
+// In production (served behind Traefik at app.localhost or your real domain),
+// the API is reached via a relative path on the SAME origin -- Traefik routes
+// PathPrefix(`/api`) on that domain straight to the backend container, so no
+// absolute URL is needed or correct here. VITE_GENBI_API_BASE_URL only needs
+// to be set for `npm run dev`, where the Vite dev server proxy (see
+// vite.config.js) forwards /api to a locally running backend.
+const API_BASE_URL = import.meta.env.VITE_GENBI_API_BASE_URL || "";
 
 function useAuthToken() {
   const [token, setToken] = useState(() => sessionStorage.getItem("genbi_token") || "");
@@ -152,6 +154,14 @@ function ChatPanel({ token, onLogout }) {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const [isAsking, setIsAsking] = useState(false);
+  const [backendVersion, setBackendVersion] = useState("");
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/version`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => data && setBackendVersion(data.version))
+      .catch(() => {});
+  }, []);
 
   const handleAsk = async (event) => {
     event.preventDefault();
@@ -192,7 +202,7 @@ function ChatPanel({ token, onLogout }) {
   return (
     <div className="genbi-chat-layout">
       <header className="genbi-header">
-        <h1>GenBI</h1>
+        <h1>GenBI {backendVersion && <span className="genbi-version-tag">v{backendVersion}</span>}</h1>
         <div className="genbi-header-controls">
           <ConnectionSelector
             token={token}

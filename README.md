@@ -80,15 +80,55 @@ sudo ./install.sh
 3. Generate a `.env` file with strong, random secrets (skipped if one already exists — **it will never overwrite existing secrets**).
 4. Build every application image from source and start the full stack.
 
-By default the OpenUI is served at `http://app.localhost` and the Admin Panel
-at `http://admin.localhost`. Point real DNS records at your server and update
-`GENBI_OPENUI_DOMAIN` / `GENBI_ADMIN_DOMAIN` in `.env`, then run:
+By default:
+- **OpenUI** (business users) is served on port **80**: `http://<your-server-ip-or-domain>/`
+- **Admin Panel** (operators) is served on port **8080**: `http://<your-server-ip-or-domain>:8080/`
+
+This works identically whether you connect via a bare IP address, `localhost`,
+or a real domain — **no DNS or `/etc/hosts` configuration is required.**
+Routing is done by port, not hostname, specifically so a fresh install works
+immediately on a LAN server reached only by IP. If `80` or `8080` are already
+in use on your host, set `GENBI_OPENUI_PORT` / `GENBI_ADMIN_PORT` in `.env`
+to different values, then run:
 
 ```bash
 docker compose up -d
 ```
 
 to apply the new domains.
+
+## Your first login
+
+`install.sh` automatically creates a default tenant and a superadmin account
+the very first time the platform starts with zero admin users. At the end
+of installation you'll see credentials printed directly in the terminal,
+and they're also saved to `secrets/admin_credentials.txt` (root-readable
+only) for later reference:
+
+```
+GenBI Platform -- Default Admin Credentials
+=============================================
+Email:    admin@genbi.local
+Password: <randomly generated>
+```
+
+Log in to the Admin Panel with those, then **change the password
+immediately** (or create a personal admin account via the Admin Panel and
+deactivate the default one). This step only ever runs once — on every
+subsequent start or upgrade, the bootstrap script checks whether any admin
+user already exists and does nothing if so, so it's safe across restarts
+and version upgrades.
+
+Want a different default email instead of `admin@genbi.local`? Set
+`GENBI_DEFAULT_ADMIN_EMAIL` in `.env` **before** the first `docker compose up`.
+
+To provision additional users (a second tenant, another admin), use:
+
+```bash
+docker compose exec backend_api python -m app.scripts.create_admin_user \
+    --tenant-name "Another Company" \
+    --email someone@example.com
+```
 
 ## Local development
 
@@ -118,6 +158,89 @@ Run backend tests with:
 cd backend
 pytest -v
 ```
+
+## Alternative: hostname-based routing
+
+The default setup above routes by **port** (80 for OpenUI, 8080 for Admin
+Panel) specifically so it works with zero configuration via a bare IP
+address. If you have real DNS and want each frontend on its own subdomain
+with independent TLS certificates instead, swap the labels in
+`docker-compose.yml`:
+
+```yaml
+# On backend_api, openui_frontend, admin_panel_frontend: replace the
+# PathPrefix(`/`) / PathPrefix(`/api`) + entrypoints=openui|adminui rules
+# with, e.g.:
+- "traefik.http.routers.genbi-openui.rule=Host(`app.yourdomain.com`)"
+- "traefik.http.routers.genbi-openui.entrypoints=websecure"
+- "traefik.http.routers.genbi-openui.tls.certresolver=letsencrypt"
+```
+
+...and add a Let's Encrypt `certresolver` to the `reverse_proxy` service's
+`command:` block. This is more setup than the port-based default, so it's
+left as an opt-in change rather than the default — most self-hosted
+installs are better served by connecting via IP on day one.
+
+## Versioning & upgrades
+
+This project follows [Semantic Versioning](https://semver.org/)
+(`MAJOR.MINOR.PATCH`), tracked in three synced places: the root `VERSION`
+file, `backend/VERSION` (baked into the backend image and served at
+`GET /api/version`), and both frontends' `package.json`. Every release is
+also recorded in [CHANGELOG.md](CHANGELOG.md).
+
+**Check what's currently running:**
+```bash
+curl http://<server>/api/version
+# {"version": "1.0.0"}
+```
+Both the OpenUI and Admin Panel headers also show the version they're
+talking to, in small text next to the title — handy for confirming an
+upgrade actually took effect.
+
+**Cutting a new release** (maintainers): after merging changes and adding a
+`CHANGELOG.md` entry under `[Unreleased]`, run:
+```bash
+./scripts/release.sh 1.1.0
+```
+This bumps every version reference in sync, commits, and creates an
+annotated git tag. Review the commit, then:
+```bash
+git push origin main --tags
+```
+Pushing the tag triggers `.github/workflows/release.yml`, which builds and
+publishes all three images to GitHub Container Registry, tagged with both
+the exact version and `latest`.
+
+**Upgrading an existing installation** to a new version:
+```bash
+git fetch --tags
+git checkout v1.1.0        # or `git pull` if you track main directly
+docker compose build
+docker compose up -d
+```
+The backend's `entrypoint.sh` automatically takes a `pg_dump` snapshot of
+the admin database, then runs `alembic upgrade head`, before starting the
+server on every container start — so every upgrade is preceded by a
+recoverable snapshot, and the container refuses to come up if a migration
+fails partway. The default-admin bootstrap step is a no-op on every upgrade
+once at least one admin user exists, so upgrading never touches existing
+accounts or credentials.
+
+**Rolling back**, if a release causes a problem:
+```bash
+git checkout v1.0.0
+docker compose build
+docker compose up -d
+```
+If the newer version's migration changed the schema in a way the older
+code can't read, restore the pre-migration snapshot from
+`/opt/genbi/backups` inside the `backend_api` container (or the named
+volume `genbi_db_backups`) before starting the older version. This is why
+migrations should stay additive within a MINOR release line (see
+`backend/alembic/versions/0001_initial_schema.py`'s docstring) — reserve
+breaking schema changes for a MAJOR version bump, called out clearly in
+`CHANGELOG.md`.
 
 ## Security model (read before connecting a production database)
 
