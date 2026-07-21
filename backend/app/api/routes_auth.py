@@ -14,11 +14,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_admin_user
 from app.config import get_settings
 from app.database import get_admin_db_session
 from app.models.admin_models import AdminUser
-from app.schemas.api_schemas import LoginRequest, LoginResponse
-from app.security import create_access_token, verify_password
+from app.schemas.api_schemas import ChangePasswordRequest, LoginRequest, LoginResponse
+from app.security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 _settings = get_settings()
@@ -51,3 +52,24 @@ def login(
         access_token=access_token,
         expires_in_minutes=_settings.jwt_access_token_expiry_minutes,
     )
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    change_request: ChangePasswordRequest,
+    db_session: Annotated[Session, Depends(get_admin_db_session)],
+    current_admin_user: Annotated[AdminUser, Depends(get_current_admin_user)],
+) -> None:
+    """
+    Lets the currently logged-in admin change their own password. Requires
+    the current password to be supplied and correctly verified first --
+    this endpoint is reachable by anyone with a valid session token, so it
+    must not let a stolen-but-not-yet-expired token silently take over the
+    account with no further proof of identity.
+    """
+    if not verify_password(change_request.current_password, current_admin_user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect.")
+
+    current_admin_user.hashed_password = hash_password(change_request.new_password)
+    db_session.add(current_admin_user)
+    db_session.commit()

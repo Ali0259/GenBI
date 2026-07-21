@@ -11,7 +11,11 @@ and this project follows [Semantic Versioning](https://semver.org/) —
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- Self-service "change my password" endpoint (`POST /api/auth/change-password`)
+  and a matching panel in the Admin Panel UI.
+- `app.scripts.reset_admin_password` CLI for resetting a password without
+  needing the current one (lockout recovery).
 
 ## [1.0.0] - 2026-07-20
 

@@ -69,8 +69,8 @@ query fails to execute.
 ## Quick start (production, Ubuntu 20.04/22.04/24.04 LTS)
 
 ```bash
-git clone https://github.com/ali0259/genbi.git
-cd genbi
+git clone https://github.com/your-org/genbi-platform.git
+cd genbi-platform
 sudo ./install.sh
 ```
 
@@ -129,6 +129,26 @@ docker compose exec backend_api python -m app.scripts.create_admin_user \
     --tenant-name "Another Company" \
     --email someone@example.com
 ```
+
+**Changing your password:** log in and use the "Change Your Password" panel
+in the Admin Panel — it requires your current password, so a stolen session
+token alone can't take over the account.
+
+**Locked out / forgot your password?** Reset it directly:
+```bash
+docker compose exec backend_api python -m app.scripts.reset_admin_password \
+    --email admin@genbi.local
+```
+
+**Note on re-running `install.sh` or rebuilding the stack:** the admin
+database lives in the `genbi_admin_db_data` Docker volume, which persists
+across `docker compose down` / `build` / `up` (only `docker compose down -v`
+destroys it). This means the default-admin bootstrap step will correctly
+find your existing account and do nothing on a rebuild — it will **not**
+regenerate a new credentials file or password. If `secrets/admin_credentials.txt`
+is missing after a reinstall, that's why: an admin user already existed
+from before. Use the change-password or reset-password commands above
+instead of expecting a fresh default account to appear.
 
 ## Local development
 

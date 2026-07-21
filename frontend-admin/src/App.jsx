@@ -305,6 +305,81 @@ function LlmConfigPanel({ token }) {
   );
 }
 
+function ChangePasswordPanel({ token }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+  const [isError, setIsError] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setStatusMessage("");
+    setIsError(false);
+
+    if (newPassword !== confirmPassword) {
+      setStatusMessage("New password and confirmation do not match.");
+      setIsError(true);
+      return;
+    }
+    if (newPassword.length < 8) {
+      setStatusMessage("New password must be at least 8 characters.");
+      setIsError(true);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/change-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      });
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error(errorBody.detail || "Failed to change password.");
+      }
+      setStatusMessage("Password changed successfully.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (error) {
+      setStatusMessage(error.message);
+      setIsError(true);
+    }
+  };
+
+  return (
+    <section className="genbi-admin-card">
+      <h2>Change Your Password</h2>
+      <p className="genbi-admin-muted">
+        If you're logged in with the default auto-generated admin account, change this now.
+      </p>
+      <form onSubmit={handleSubmit} className="genbi-admin-form">
+        <label>Current password</label>
+        <input
+          required
+          type="password"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+        />
+        <label>New password</label>
+        <input required type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+        <label>Confirm new password</label>
+        <input
+          required
+          type="password"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+        />
+        <button type="submit">Change password</button>
+        {statusMessage && (
+          <p className={isError ? "genbi-admin-error" : "genbi-admin-muted"}>{statusMessage}</p>
+        )}
+      </form>
+    </section>
+  );
+}
+
 function AdminDashboard({ token, onLogout }) {
   const [backendVersion, setBackendVersion] = useState("");
 
@@ -326,6 +401,7 @@ function AdminDashboard({ token, onLogout }) {
       <main className="genbi-admin-main">
         <ConnectionsPanel token={token} />
         <LlmConfigPanel token={token} />
+        <ChangePasswordPanel token={token} />
       </main>
     </div>
   );

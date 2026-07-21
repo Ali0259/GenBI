@@ -17,6 +17,11 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=255)
+
+
 class LoginRequest(BaseModel):
     email: str
     password: str
