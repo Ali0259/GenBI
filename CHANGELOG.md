@@ -16,6 +16,14 @@ and this project follows [Semantic Versioning](https://semver.org/) —
   and a matching panel in the Admin Panel UI.
 - `app.scripts.reset_admin_password` CLI for resetting a password without
   needing the current one (lockout recovery).
+- `uninstall.sh` with partial (keep data) and complete (wipe everything) removal modes.
+
+### Fixed
+- `install.sh` now detects a pre-existing admin database volume before
+  generating a new `.env`, preventing a password mismatch between a fresh
+  `.env` and a Postgres volume initialized under old credentials.
+- `entrypoint.sh` now recognizes a password-authentication failure during
+  migration and prints a specific, actionable hint instead of just failing.
 
 ## [1.0.0] - 2026-07-20
 

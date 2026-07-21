@@ -308,6 +308,56 @@ docker compose up -d
 Alembic migrations run automatically on backend container startup, after a
 pre-migration snapshot is taken.
 
+## Uninstalling
+
+```bash
+sudo ./uninstall.sh
+```
+
+Presents an interactive menu:
+- **Partial removal** — stops containers and removes the images built from
+  this repo, but keeps all data (admin database, backups, `.env`, `secrets/`).
+  Use this before reinstalling or rebuilding from scratch without losing
+  tenants, connections, or LLM configs.
+- **Complete removal** — deletes everything, including the admin database
+  volume, backups, `.env`, and `secrets/`. Irreversible; requires typing
+  `DELETE` to confirm. Use this when decommissioning a VM entirely.
+
+Non-interactive flags are also available: `sudo ./uninstall.sh --partial`
+or `sudo ./uninstall.sh --complete`.
+
+## Troubleshooting
+
+### `password authentication failed for user "genbi_admin_user"` / backend keeps restarting
+
+Postgres only applies `POSTGRES_PASSWORD` the very first time it initializes
+an empty data volume — it does **not** reset the password on later starts.
+If `.env` was ever deleted or regenerated (e.g. `install.sh` ran again after
+`.env` went missing) while the `genbi_admin_db_data` volume from an earlier
+install still exists, the password in `.env` and the password Postgres
+actually has stored will no longer match, and the backend will crash-loop
+on every `alembic upgrade head` attempt.
+
+`install.sh` now detects this case before it can happen (it checks for a
+pre-existing admin database volume when `.env` is missing, and asks
+whether to wipe it). If you hit it anyway, fix it without losing data by
+syncing Postgres's stored password to your current `.env`:
+```bash
+NEW_PW=$(grep -E '^ADMIN_DB_PASSWORD=' .env | cut -d= -f2)
+docker compose exec admin_database psql -U genbi_admin_user -d genbi_admin \
+    -c "ALTER USER genbi_admin_user WITH PASSWORD '${NEW_PW}';"
+docker compose up -d backend_api
+```
+
+### Frontend loads but login says "Failed to fetch"
+
+Almost always means the browser is calling the wrong origin for the API —
+check the Network tab in devtools for the exact URL it's trying to reach.
+Both frontends call the backend via a relative `/api/...` path (same
+origin), routed by Traefik based on which port you connected on (80 for
+OpenUI, 8080 for Admin Panel) — see "Alternative: hostname-based routing"
+above if you've customized this and it's no longer matching.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

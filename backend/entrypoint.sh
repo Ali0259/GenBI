@@ -41,7 +41,24 @@ else
 fi
 
 echo "[entrypoint] Running Alembic migrations..."
-if ! alembic upgrade head; then
+alembic_output="$(alembic upgrade head 2>&1)" && alembic_exit_code=0 || alembic_exit_code=$?
+echo "${alembic_output}"
+
+if [[ "${alembic_exit_code}" -ne 0 ]]; then
+    if echo "${alembic_output}" | grep -qi "password authentication failed"; then
+        echo ""
+        echo "[entrypoint] HINT: this looks like a credential mismatch, not a migration problem."
+        echo "[entrypoint] Postgres only applies POSTGRES_PASSWORD the FIRST time it initializes an empty"
+        echo "[entrypoint] data volume -- it will NOT reset the password on later starts. If your .env's"
+        echo "[entrypoint] ADMIN_DB_PASSWORD was regenerated (e.g. .env was deleted and install.sh ran again)"
+        echo "[entrypoint] while the admin database volume from a previous install still exists, the two"
+        echo "[entrypoint] will no longer match. Fix without losing data by syncing Postgres's stored"
+        echo "[entrypoint] password to your current .env from the HOST (not inside this container):"
+        echo "[entrypoint]     NEW_PW=\$(grep -E '^ADMIN_DB_PASSWORD=' .env | cut -d= -f2)"
+        echo "[entrypoint]     docker compose exec admin_database psql -U \${ADMIN_DB_USER:-genbi_admin_user} -d \${ADMIN_DB_NAME:-genbi_admin} -c \"ALTER USER \${ADMIN_DB_USER:-genbi_admin_user} WITH PASSWORD '\${NEW_PW}';\""
+        echo "[entrypoint]     docker compose up -d backend_api"
+        echo ""
+    fi
     echo "[entrypoint] FATAL: alembic upgrade head failed. Refusing to start the API server " \
          "against a potentially half-migrated schema. A snapshot (if one was possible) is at ${BACKUP_FILE}."
     exit 1

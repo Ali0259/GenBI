@@ -192,6 +192,49 @@ generate_fernet_compatible_key() {
     echo
 }
 
+warn_if_stale_volume_would_mismatch_new_env() {
+    # Postgres only applies POSTGRES_PASSWORD the very first time it
+    # initializes an empty data volume -- it does NOT reset the password on
+    # every container start. If .env is missing (deleted, lost, or this is
+    # a fresh checkout on a machine that already ran GenBI before) but the
+    # admin database volume from a PREVIOUS install still exists, generating
+    # a brand-new random ADMIN_DB_PASSWORD here would create a password that
+    # does not match what's already stored inside that volume -- and the
+    # backend would fail to start with "password authentication failed"
+    # (a real issue hit during development of this installer). Catch that
+    # BEFORE it happens rather than after.
+    if [[ -f "${GENBI_ENV_FILE}" ]]; then
+        return 0  # .env already exists; generate_environment_file() will leave it untouched anyway.
+    fi
+
+    local matching_volumes
+    matching_volumes="$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep -E 'admin_db_data' || true)"
+
+    if [[ -z "${matching_volumes}" ]]; then
+        return 0  # No pre-existing volume -- safe to generate a fresh .env.
+    fi
+
+    echo ""
+    log_warn "Found an existing admin database volume, but no .env file:"
+    echo "${matching_volumes}" | while read -r volume_name; do log_warn "    ${volume_name}"; done
+    log_warn "This usually means .env was deleted or lost after a previous install. Generating a brand-new"
+    log_warn ".env now would create a password that does NOT match what Postgres already has stored in that"
+    log_warn "volume, and the backend would fail to start with 'password authentication failed'."
+    echo ""
+    read -r -p "Wipe the existing admin database volume(s) above and start fresh? Type WIPE to confirm, anything else to abort: " confirmation
+
+    if [[ "${confirmation}" == "WIPE" ]]; then
+        echo "${matching_volumes}" | while read -r volume_name; do
+            docker volume rm "${volume_name}" >> "${GENBI_LOG_FILE}" 2>&1
+            log_info "Removed volume ${volume_name}."
+        done
+    else
+        fail_with_message "Aborting. Either restore your original .env file (with the ADMIN_DB_PASSWORD " \
+                           "Postgres was actually initialized with), or re-run this script and confirm the " \
+                           "wipe if you don't need the existing data. See the README's Troubleshooting section."
+    fi
+}
+
 prepare_secrets_directory() {
     local secrets_dir="${REPO_ROOT}/secrets"
     if [[ ! -d "${secrets_dir}" ]]; then
@@ -202,6 +245,8 @@ prepare_secrets_directory() {
 }
 
 generate_environment_file() {
+    warn_if_stale_volume_would_mismatch_new_env
+
     if [[ -f "${GENBI_ENV_FILE}" ]]; then
         log_info "Existing .env file found at ${GENBI_ENV_FILE}; leaving secrets untouched. " \
                   "Delete this file manually only if you intend to fully reset credentials."
