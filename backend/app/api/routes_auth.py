@@ -54,7 +54,7 @@ def login(
     )
 
 
-@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 def change_password(
     change_request: ChangePasswordRequest,
     db_session: Annotated[Session, Depends(get_admin_db_session)],

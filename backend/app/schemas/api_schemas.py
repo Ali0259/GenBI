@@ -82,6 +82,8 @@ class TargetDatabaseConnectionResponse(BaseModel):
 
 
 class LlmConfigurationCreateRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     provider: str = Field(description="One of: openai, anthropic, gemini, ollama")
     model_name: str
     base_url: Optional[str] = Field(default=None, description="Required for Ollama, e.g. http://ollama:11434")
@@ -92,7 +94,7 @@ class LlmConfigurationCreateRequest(BaseModel):
 
 
 class LlmConfigurationResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
     id: uuid.UUID
     provider: str

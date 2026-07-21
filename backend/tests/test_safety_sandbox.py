@@ -16,6 +16,25 @@ from app.agent.text_to_sql import SafetySandbox, SqlSafetyViolation
 from app.db.introspection import SqlDialect
 
 
+class TestForbiddenStatementTypesListIsPopulated:
+    def test_forbidden_statement_types_is_not_empty(self) -> None:
+        """
+        Regression test for a real incident: _FORBIDDEN_STATEMENT_TYPES is
+        built defensively via getattr so a class name missing in a given
+        sqlglot version doesn't crash the whole app at import time (see
+        CHANGELOG). This test guards the other failure direction -- making
+        sure that defensiveness never silently degrades into an EMPTY list,
+        which would quietly remove the nested-DML defense-in-depth layer
+        entirely without anyone noticing.
+        """
+        from app.agent.text_to_sql import _FORBIDDEN_STATEMENT_TYPES
+
+        assert len(_FORBIDDEN_STATEMENT_TYPES) > 0, (
+            "No forbidden statement types resolved against the installed sqlglot version -- "
+            "check _FORBIDDEN_STATEMENT_TYPE_CANDIDATE_NAMES against the current sqlglot.expressions API."
+        )
+
+
 class TestSafetySandboxAcceptsReadOnlyQueries:
     def test_accepts_simple_select_postgres(self) -> None:
         sql = "SELECT id, name FROM customers LIMIT 100"

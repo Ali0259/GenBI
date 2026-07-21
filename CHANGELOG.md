@@ -24,6 +24,24 @@ and this project follows [Semantic Versioning](https://semver.org/) —
   `.env` and a Postgres volume initialized under old credentials.
 - `entrypoint.sh` now recognizes a password-authentication failure during
   migration and prints a specific, actionable hint instead of just failing.
+- Fixed a FastAPI startup crash: the `/api/auth/change-password` route
+  used `status_code=204` without `response_model=None`, which raises an
+  `AssertionError` at import time and silently took down the entire
+  backend (every request refused, no crash-loop visible in `docker ps`
+  status). Added `tests/test_app_imports.py`, which actually imports the
+  FastAPI app in CI, so an import-time error like this fails the build
+  instead of shipping.
+- Silenced a Pydantic warning about `model_name` colliding with its
+  reserved `model_` namespace on the LLM configuration schemas.
+- Fixed another FastAPI startup crash: `app.agent.text_to_sql` referenced
+  `sqlglot.exp.AlterTable` directly, which doesn't exist in the pinned
+  `sqlglot==25.24.5` release and raised `AttributeError` at import time
+  (same silent-crash symptom as the 204 route bug above). The forbidden
+  nested-statement-type list is now built defensively via `getattr`, so a
+  class name that doesn't exist in a given `sqlglot` version is skipped
+  rather than crashing the app -- the primary safety boundary (root
+  statement must be SELECT/WITH/UNION) was never affected by this bug and
+  remained in force throughout.
 
 ## [1.0.0] - 2026-07-20
 

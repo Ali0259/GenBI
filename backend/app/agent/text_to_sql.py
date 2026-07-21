@@ -39,17 +39,40 @@ from app.llm.base import BaseLLMAdapter, LLMAdapterError
 # Statement types that must NEVER reach a target database connection,
 # regardless of what the LLM produced. This list is intentionally explicit
 # rather than an "allow SELECT, block nothing else" default -- fail closed.
-_FORBIDDEN_STATEMENT_TYPES: tuple[type, ...] = (
-    sqlglot.exp.Insert,
-    sqlglot.exp.Update,
-    sqlglot.exp.Delete,
-    sqlglot.exp.Drop,
-    sqlglot.exp.AlterTable,
-    sqlglot.exp.Create,
-    sqlglot.exp.TruncateTable,
-    sqlglot.exp.Merge,
-    sqlglot.exp.Command,  # catches EXEC/EXECUTE and other vendor procedural statements
-    sqlglot.exp.Grant,
+#
+# Built defensively via getattr rather than direct attribute access: exact
+# class names in sqlglot.expressions have changed between versions (e.g.
+# some releases expose ALTER TABLE as `AlterTable`, others under a
+# differently named class), and a direct `sqlglot.exp.SomeName` reference
+# that doesn't exist in the currently installed version raises
+# AttributeError at IMPORT time -- which takes down the entire application,
+# not just SQL validation, exactly as happened in production once before.
+# Getattr-with-default means a name that doesn't exist in this version is
+# silently skipped here rather than crashing the whole backend.
+#
+# This is safe to do because it is not the only defense: SafetySandbox's
+# root-statement-type check (only SELECT / WITH / UNION allowed as the
+# root node, done separately below) already blocks every top-level
+# INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/etc. regardless of whether that
+# exact class also appears in this list. This list exists purely to catch
+# such statements nested inside a CTE or subquery, which is a smaller
+# additional net, not the primary safety boundary.
+_FORBIDDEN_STATEMENT_TYPE_CANDIDATE_NAMES: tuple[str, ...] = (
+    "Insert",
+    "Update",
+    "Delete",
+    "Drop", "DropTable",
+    "Alter", "AlterTable", "AlterColumn", "AddConstraint", "RenameTable",
+    "Create", "CreateTable",
+    "TruncateTable", "Truncate",
+    "Merge",
+    "Command",  # catches EXEC/EXECUTE and other vendor procedural statements
+    "Grant", "Revoke",
+)
+_FORBIDDEN_STATEMENT_TYPES: tuple[type, ...] = tuple(
+    getattr(sqlglot.exp, name)
+    for name in _FORBIDDEN_STATEMENT_TYPE_CANDIDATE_NAMES
+    if hasattr(sqlglot.exp, name)
 )
 
 _DIALECT_TO_SQLGLOT_NAME: dict[SqlDialect, str] = {
